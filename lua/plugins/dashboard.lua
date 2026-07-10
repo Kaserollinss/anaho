@@ -31,7 +31,64 @@ return {
         package.loaded["dashboard_art"] = nil
         require("dashboard_art")
       end
-      api.nvim_create_autocmd("ColorScheme", { callback = define_art_hl })
+
+      local function define_ui_hl()
+        api.nvim_set_hl(0, "AnahoTitle", { link = "DashboardHeader" })
+        api.nvim_set_hl(0, "AnahoFlower1", { fg = "#f38ba8", bold = true })
+        api.nvim_set_hl(0, "AnahoFlower2", { fg = "#f9e2af", bold = true })
+        api.nvim_set_hl(0, "AnahoVine", { fg = "#a6e3a1" })
+      end
+      define_ui_hl()
+
+      -- `hi clear` wipes both the I2A* groups and the ones above
+      api.nvim_create_autocmd("ColorScheme", {
+        callback = function()
+          define_art_hl()
+          define_ui_hl()
+        end,
+      })
+
+      -------------------------------------------------------------------
+      -- Title: "anaho" with a lei draped over the letters
+      -------------------------------------------------------------------
+      -- 20 cells wide, and the blossoms sit above the letter centers
+      local TITLE = {
+        "~❀~·~✿~·~~❀~·~✿~·~❀~",
+        "▄▀█ █▄ █ ▄▀█ █ █ █▀█",
+        "█▀█ █ ▀█ █▀█ █▀█ █▄█",
+      }
+      local TITLE_HL = {
+        ["▄"] = "AnahoTitle",
+        ["▀"] = "AnahoTitle",
+        ["█"] = "AnahoTitle",
+        ["❀"] = "AnahoFlower1",
+        ["✿"] = "AnahoFlower2",
+        ["~"] = "AnahoVine",
+        ["·"] = "AnahoVine",
+      }
+
+      -- byte-offset spans, merging adjacent characters that share a group
+      local function segments(text)
+        local segs, run, i = {}, nil, 1
+        while i <= #text do
+          local b = text:byte(i)
+          local len = (b >= 240 and 4) or (b >= 224 and 3) or (b >= 192 and 2) or 1
+          local group = TITLE_HL[text:sub(i, i + len - 1)]
+          if run and group == run[1] and run[3] == i - 1 then
+            run[3] = i + len - 1
+          else
+            if run then
+              segs[#segs + 1] = run
+            end
+            run = group and { group, i - 1, i + len - 1 } or nil
+          end
+          i = i + len
+        end
+        if run then
+          segs[#segs + 1] = run
+        end
+        return segs
+      end
 
       -------------------------------------------------------------------
       -- Shortcut column, taken over from dashboard-nvim's `center`
@@ -52,8 +109,14 @@ return {
         table.insert(entries, { item = item, icon = icon, desc = desc, text = text })
       end
 
-      -- one shortcut per line with a blank spacer between, vertically centered
+      -- title, blank line, then one shortcut per line with a blank spacer
+      -- between; the whole block is vertically centered against the art
       local right = {}
+      for _, line in ipairs(TITLE) do
+        right[#right + 1] = { text = line, title = true, segs = segments(line) }
+      end
+      right[#right + 1] = false
+      right[#right + 1] = false
       for i, e in ipairs(entries) do
         local pad = widest - api.nvim_strwidth(e.text) + 3
         e.text = e.text .. (" "):rep(pad) .. e.item.key
@@ -141,13 +204,19 @@ return {
           local r = shortcuts[i]
           if r then
             local base = col0 + #art.val[i] + GAP
-            local icon, key = r.icon, r.item.key
-            local desc_end = base + #icon + #r.desc
-            local key_start = base + #r.text - #key
-            put(buf, ui_ns, lnum, base, base + #icon, "DashboardIcon")
-            put(buf, ui_ns, lnum, base + #icon, desc_end, "DashboardDesc")
-            put(buf, ui_ns, lnum, key_start, key_start + #key, "DashboardKey")
-            rows[lnum + 1] = { item = r.item, col = base }
+            if r.title then
+              for _, seg in ipairs(r.segs) do
+                put(buf, ui_ns, lnum, base + seg[2], base + seg[3], seg[1])
+              end
+            else
+              local icon, key = r.icon, r.item.key
+              local desc_end = base + #icon + #r.desc
+              local key_start = base + #r.text - #key
+              put(buf, ui_ns, lnum, base, base + #icon, "DashboardIcon")
+              put(buf, ui_ns, lnum, base + #icon, desc_end, "DashboardDesc")
+              put(buf, ui_ns, lnum, key_start, key_start + #key, "DashboardKey")
+              rows[lnum + 1] = { item = r.item, col = base }
+            end
           end
         end
         return rows
